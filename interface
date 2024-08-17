@@ -1,0 +1,176 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import pandas as pd
+import numpy as np
+import seaborn as sns
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, LabelEncoder
+from sklearn.datasets import load_iris
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, confusion_matrix
+
+# Função para carregar os dados
+def load_data():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        data = pd.read_csv(file_path)
+        messagebox.showinfo("Data Loaded", f"Data loaded successfully from {file_path}")
+        return data
+    else:
+        messagebox.showwarning("Load Data", "No file selected!")
+        return None
+
+def plot_confusion_matrix(model, X_test, y_test, frame):
+    y_pred = model.predict(X_test)
+    y_pred = (y_pred > 0.5).astype(int)
+    accuracy = accuracy_score(y_test, y_pred)
+    conf_matrix = confusion_matrix(y_test, y_pred)
+    
+    fig, ax = plt.subplots(figsize=(5, 4))
+    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", linewidths=.5, ax=ax)
+    ax.set_title(f'Confusion Matrix / Acurácia: {accuracy:.2f}')
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('True')
+    
+    # Embedding the matplotlib figure into the Tkinter canvas
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+
+
+# Função para pré-processamento básico
+def preprocess_data(data):
+    le = LabelEncoder()
+    data.marital = le.fit_transform(data.marital)
+    data.housing = le.fit_transform(data.housing)
+    data.deposit = le.fit_transform(data.deposit)
+    data.loan = le.fit_transform(data.loan)
+    data.default = le.fit_transform(data.default)
+    data.duration = le.fit_transform(data.duration)
+
+
+    encoder = OneHotEncoder(sparse_output=False)
+
+    # Selecionando apenas as colunas categóricas para codificação
+    categorical_cols = ['job', 'marital','education', 'contact', 'month', 'campaign','poutcome']
+    encoded_data = encoder.fit_transform(data[categorical_cols])
+
+    # Criando um DataFrame com as novas colunas codificadas
+    encoded_df = pd.DataFrame(encoded_data, columns=encoder.get_feature_names_out(categorical_cols))
+
+    # Concatenando os dados originais com os dados codificados
+    data = pd.concat([data.drop(columns=categorical_cols), encoded_df], axis=1)
+    data
+
+    scaler = MinMaxScaler(feature_range=(-1, 1))
+
+    # Selecionando a coluna que será normalizada
+    data['age'] = scaler.fit_transform(data[['age']])
+    data['balance'] = scaler.fit_transform(data[['balance']])
+    data['day'] = scaler.fit_transform(data[['day']])
+    data['duration'] = scaler.fit_transform(data[['duration']])
+    data['pdays'] = scaler.fit_transform(data[['pdays']])
+
+
+    
+    y = data['deposit']
+    X = data.drop(columns='deposit')
+
+        # Dividindo os dados em conjuntos de treino e teste
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    return X_train, X_test, y_train, y_test
+
+# Função para criar e treinar o modelo
+def train_model(X_train, y_train, X_test, y_test, progress_bar, epochs):
+
+    model = Sequential([
+        Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
+
+        Dense(32, activation='relu'),
+
+        Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+ # Callback para atualizar a barra de progresso
+    class ProgressBarCallback(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            progress_bar['value'] = (epoch + 1) / epochs * 100
+            root.update_idletasks()
+    
+    history = model.fit(X_train, y_train, epochs=epochs, batch_size=32, validation_data=(X_test, y_test), 
+                        callbacks=[ProgressBarCallback()])
+    # Compilar o modelo
+
+    
+    
+    return model,history
+
+# Função para plotar os resultados
+def plot_history(history, frame):
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.plot(history.history['accuracy'], label='Train Accuracy')
+    ax.plot(history.history['val_accuracy'], label='Test Accuracy')
+    ax.set_title('Model Accuracy')
+    ax.set_ylabel('Accuracy')
+    ax.set_xlabel('Epoch')
+    ax.legend(loc='upper left')
+    
+    # Embedding the matplotlib figure into the Tkinter canvas
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+# Função principal para executar o fluxo
+def main():
+    data = load_data()
+    if data is not None:
+        X_train, X_test, y_train, y_test = preprocess_data(data)
+        try:
+            epochs = int(epochs_entry.get())
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter a valid number of epochs.")
+            return
+        
+        model, history = train_model(X_train, y_train, X_test, y_test, progress_bar, epochs)
+        
+        # Plotar gráficos nos frames
+        plot_history(history, frame1)
+        plot_confusion_matrix(model, X_test, y_test, frame2)
+        
+        # Exibir a acurácia final
+        final_accuracy = accuracy_score(y_test, (model.predict(X_test) > 0.5).astype(int))
+        messagebox.showinfo("Training Complete", f"Model trained successfully! Final Accuracy: {final_accuracy:.2f}")
+
+
+
+# Configuração da interface gráfica
+root = tk.Tk()
+root.title("Neural Network Trainer")
+
+load_button = tk.Button(root, text="Load Data", command=main)
+load_button.pack(pady=(50,50))
+# Caixa de entrada para o número de épocas
+tk.Label(root, text="Número de Épocas:").pack(pady=5)
+epochs_entry = tk.Entry(root)
+epochs_entry.pack(pady=5)
+epochs_entry.insert(0, "10")  # Valor padrão de 10 épocas
+
+# Barra de progresso
+progress_bar = ttk.Progressbar(root, orient="horizontal", length=300, mode="determinate")
+progress_bar.pack(pady=10)
+
+# Frame para o gráfico de acurácia
+frame1 = tk.Frame(root)
+frame1.pack(side=tk.LEFT, padx=10, pady=10)
+
+# Frame para a matriz de confusão
+frame2 = tk.Frame(root)
+frame2.pack(side=tk.RIGHT, padx=10, pady=10)
+
+root.mainloop()
